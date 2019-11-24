@@ -83,9 +83,8 @@ module Slang
           consume_element_id
         when ' ', '[', '(', '{'
           close_char = ATTR_OPEN_CLOSE_MAP[current_char]
-          open_char = current_char
           next_char
-          consume_element_attributes(open_char, close_char)
+          consume_element_attributes(close_char)
           break
         else
           break
@@ -99,7 +98,7 @@ module Slang
       consume_element
     end
 
-    private def consume_element_attributes(open_char, close_char)
+    private def consume_element_attributes(close_char)
       current_attr_name = ""
 
       loop do
@@ -109,7 +108,7 @@ module Slang
           current_attr_name = consume_html_valid_name
         when '='
           break if current_attr_name.empty?
-          @token.add_attribute current_attr_name, consume_value(open_char, close_char), true
+          @token.add_attribute current_attr_name, consume_value, true
           current_attr_name = ""
         when ' ', close_char
           break unless current_attr_name.empty?
@@ -368,37 +367,49 @@ module Slang
       '<' => '>',
     }
 
-    private def consume_value(open_char, close_char)
+    private def consume_value(end_on_space = true)
       String.build do |str|
-        open_count = 0
-
         is_str = false
         is_in_parenthesis = false
         is_in_interpolation = false
         loop do
           case current_char
           when '='
+            str << current_char if is_str
             next_char
-            if current_char == '"'
-              ch = current_char
+            if current_char == '"' && !is_str
+              is_str = true
               str << current_char
               next_char
-              str << consume_string open_char: ch, close_char: ch
-              break
+            elsif current_char == '('
+              is_in_parenthesis = true
+              str << current_char
+              next_char
             end
+          when '#'
+            str << current_char if is_str
+            next_char
+            if current_char == '{'
+              is_in_interpolation = true
+              str << current_char
+              next_char
+            end
+          when '"'
+            str << current_char
+            next_char
+            break if is_in_interpolation == false
+          when '}'
+            str << current_char
+            next_char
+            if is_in_interpolation
+              is_in_interpolation = false
+            end
+          when ')'
+            str << current_char
+            next_char
+            break if is_in_parenthesis
           when ' '
-            break if open_count == 0
-            str << current_char
-            next_char
-          when open_char
-            next if open_char == ' '
-            open_count += 1
-            str << current_char
-            next_char
-          when close_char
-            next if close_char == ' '
-            break if open_count == 0
-            open_count -= 1
+            break if !is_str && !is_in_parenthesis && end_on_space
             str << current_char
             next_char
           when '\n', '\0'
